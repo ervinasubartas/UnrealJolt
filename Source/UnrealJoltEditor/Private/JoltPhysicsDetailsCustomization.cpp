@@ -1,8 +1,8 @@
 ﻿#include "JoltPhysicsDetailsCustomization.h"
 #include "JoltPhysicsComponent.h"
-#include "Components/PrimitiveComponent.h"
 #include "DetailLayoutBuilder.h"
 #include "DetailCategoryBuilder.h"
+#include "IDetailChildrenBuilder.h"
 #include "IDetailGroup.h"
 
 TSharedRef<IDetailCustomization> FJoltPhysicsDetailsCustomization::MakeInstance()
@@ -14,74 +14,85 @@ void FJoltPhysicsDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& De
 {
 	TArray<TWeakObjectPtr<UObject>> Objects;
 	DetailBuilder.GetObjectsBeingCustomized(Objects);
-
-	if (Objects.Num() != 1) return;
-
-	const UPrimitiveComponent* PrimitiveComponent = Cast<UPrimitiveComponent>(Objects[0].Get());
-	if (!PrimitiveComponent) return;
-
-	const AActor* Owner = PrimitiveComponent->GetOwner();
+	
+	if (Objects.IsEmpty()) return;
+	
+	const AActor* Owner = Cast<AActor>(Objects[0].Get());
 	if (!Owner) return;
-
+	
 	UJoltPhysicsComponent* JoltComponent = Owner->FindComponentByClass<UJoltPhysicsComponent>();
 	if (!JoltComponent) return;
-
+	
 	DetailBuilder.HideCategory(FName("Physics"));
-
-	IDetailCategoryBuilder& JoltCategory = DetailBuilder.EditCategory("Jolt Physics");
-
+	
+	// If a UPROPERTY on the class points at this component, the engine already flattens and nests its properties correctly, so nothing further is needed
+	bool bIsNativeProperty = false;
+	for (TFieldIterator<FObjectProperty> PropertyIt(Owner->GetClass()); PropertyIt; ++PropertyIt)
+	{
+		FObjectProperty* ObjectProperty = *PropertyIt;
+		if (!ObjectProperty->PropertyClass->IsChildOf(UJoltPhysicsComponent::StaticClass())) continue;
+		if (ObjectProperty->GetObjectPropertyValue(ObjectProperty->ContainerPtrToValuePtr<void>(Owner)) != JoltComponent) continue;
+		bIsNativeProperty = true;
+		break;
+	}
+	
+	if (!bIsNativeProperty)
+	{
+		IDetailCategoryBuilder& CategoryBuilder = DetailBuilder.EditCategory(FName("Jolt Physics"));
+		CategoryBuilder.AddCustomBuilder(MakeShared<FJoltPhysicsNodeBuilder>(&DetailBuilder, JoltComponent));
+	}
+	
 	// Put it under materials, just like the original physics category
 	const int32 MaterialsSortOrder = DetailBuilder.EditCategory("Materials").GetSortOrder();
-	JoltCategory.SetSortOrder(MaterialsSortOrder + 1);
+	DetailBuilder.EditCategory("Jolt Physics").SetSortOrder(MaterialsSortOrder + 1);
+}
 
-	TArray<UObject*> JoltObjects;
-	JoltObjects.Add(JoltComponent);
+void FJoltPhysicsNodeBuilder::GenerateChildContent(IDetailChildrenBuilder& ChildrenBuilder)
+{
+	UJoltPhysicsComponent* Component = JoltComponent.Get();
+	if (!Component || !DetailBuilder) return;
 
-	// Adds each named property as a row inside a named subgroup of the Jolt Physics category
-	auto AddGroup = [&](const FName& GroupName, const TArray<FName>& PropertyNames)
+	TArray<UObject*> JoltObjects = { Component };
+	TMap<FName, IDetailGroup*> Groups;
+
+	for (TFieldIterator<FProperty> PropertyIt(UJoltPhysicsComponent::StaticClass()); PropertyIt; ++PropertyIt)
 	{
-		IDetailGroup& Group = JoltCategory.AddGroup(GroupName, FText::FromName(GroupName));
+		FProperty* Property = *PropertyIt;
+		if (!Property->HasAnyPropertyFlags(CPF_Edit)) continue;
 
-		for (const FName& PropertyName : PropertyNames)
+		// "Jolt Physics" will be the main category, and then we'll group by whatever comes after
+		// We don't currently nest any further than the first subgroup, so be careful with categories on the component
+		const FString FullCategory = Property->GetMetaData(TEXT("Category"));
+		if (FullCategory.IsEmpty()) continue;
+
+		FString TopCategory = FullCategory;
+		FString SubGroup;
+		FullCategory.Split(TEXT("|"), &TopCategory, &SubGroup);
+
+		TSharedPtr<IPropertyHandle> Handle = DetailBuilder->AddObjectPropertyData(JoltObjects, Property->GetFName());
+		if (!Handle.IsValid()) continue;
+
+		// We rebuild, since for some reason, switching from static to dynamic doesn't update the values on EditCondition properties
+		if (Property->GetFName() == GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, MotionType))
 		{
-			TSharedPtr<IPropertyHandle> Handle = DetailBuilder.AddObjectPropertyData(JoltObjects, PropertyName);
-			if (Handle.IsValid())
-			{
-				Group.AddPropertyRow(Handle.ToSharedRef());
-			}
+			Handle->SetOnPropertyValueChanged(FSimpleDelegate::CreateRaw(this, &FJoltPhysicsNodeBuilder::OnMotionTypeChanged));
 		}
-	};
 
-	// I don't foresee new properties to be added constantly, so - even though it's a little
-	// unwieldy - this should be fine.
-	AddGroup(FName("Motion"), { 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, MotionType), 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, AllowedDOFs), 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, Layer), 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, Mass) 
-		});
-	
-	AddGroup(FName("Forces"), { 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, GravityFactor), 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, bApplyGyroscopicForce), 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, MaxLinearVelocity), 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, MaxAngularVelocity) 
-	});
-	
-	AddGroup(FName("Surface"), { 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, Friction), 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, Restitution) 
-	});
-	
-	AddGroup(FName("Damping"), { 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, LinearDamping), 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, AngularDamping) 
-	});
-	
-	AddGroup(FName("Advanced"), { 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, bAllowSleeping), 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, NumVelocityStepsOverride), 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, NumPositionStepsOverride), 
-		GET_MEMBER_NAME_CHECKED(UJoltPhysicsComponent, bEnhancedInternalEdgeRemoval) 
-	});
+		if (SubGroup.IsEmpty())
+		{
+			ChildrenBuilder.AddProperty(Handle.ToSharedRef());
+		}
+		else
+		{
+			const FName GroupName(*SubGroup);
+			IDetailGroup*& Group = Groups.FindOrAdd(GroupName);
+			if (!Group) Group = &ChildrenBuilder.AddGroup(GroupName, FText::FromName(GroupName));
+			Group->AddPropertyRow(Handle.ToSharedRef());
+		}
+	}
+}
+
+void FJoltPhysicsNodeBuilder::OnMotionTypeChanged()
+{
+    OnRebuildChildren.ExecuteIfBound();
 }
