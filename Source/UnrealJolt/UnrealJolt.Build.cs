@@ -24,6 +24,7 @@ public class UnrealJolt : ModuleRules
 				"ChaosCore",
 				"Slate",
 				"SlateCore",
+				"DeveloperSettings"
 				}
 				);
 		if (Target.bBuildEditor)

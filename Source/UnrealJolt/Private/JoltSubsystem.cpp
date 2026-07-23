@@ -273,7 +273,7 @@ void UJoltSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 		JoltSettings->MaxPhysicsBarriers,
 		JoltSettings->MaxThreads,
 		JoltSettings->FixedDeltaTime,
-		JoltSettings->InCollisionSteps,
+		JoltSettings->CollisionSteps,
 		JoltSettings->PreAllocatedMemory,
 		JoltSettings->bEnableMultithreading);
 

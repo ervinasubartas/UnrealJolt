@@ -10,27 +10,12 @@
 
 #define LOCTEXT_NAMESPACE "FUnrealJoltModule "
 
-void FUnrealJoltModule ::StartupModule()
+void FUnrealJoltModule::StartupModule()
 {
-	#if WITH_EDITOR
-	if (ISettingsModule* SettingModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings"))
-	{
-		SettingModule->RegisterSettings("Project", "Plugins", "Jolt",
-			LOCTEXT("RuntimeSettingsName", "Jolt"),
-			LOCTEXT("RuntimeSettingsDescription", "Jolt physics plugin configuration"),
-			GetMutableDefault<UJoltSettings>());
-	}
-	#endif
 }
 
-void FUnrealJoltModule ::ShutdownModule()
+void FUnrealJoltModule::ShutdownModule()
 {
-	#if WITH_EDITOR
-	if (ISettingsModule* SettingsModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings"))
-	{
-		SettingsModule->UnregisterSettings("Project", "Plugins", "MySetting");
-	}
-	#endif
 }
 
 #undef LOCTEXT_NAMESPACE

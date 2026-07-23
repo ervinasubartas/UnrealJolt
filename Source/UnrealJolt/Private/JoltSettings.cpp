@@ -1,36 +1,16 @@
-// Pixel Di
-
 #include "JoltSettings.h"
 
 static const FName StaticLayerName(TEXT("Static"));
 static const FName DynamicLayerName(TEXT("Dynamic"));
 
 constexpr int32 MaxBroadphaseLayerCount = 255; // Jolt's JPH::BroadPhaseLayer is a uint8
-constexpr int32 MaxObjectLayerCount = 65535;   // Jolt's JPH::ObjectLayer is a uint16
+constexpr int32 MaxObjectLayerCount = 65535; // Jolt's JPH::ObjectLayer is a uint16
 
 UJoltSettings::UJoltSettings(const FObjectInitializer& obj)
 {
-	MaxBodies = 65536;
-	NumBodyMutexes = 0;
-	MaxBodyPairs = 65536;
-	MaxContactConstraints = 10240;
-	bEnableDebugRenderer = true;
-	bDebugDrawStaticBodies = true;
-	bDebugDrawDynamicBodies = true;
-	bDebugDrawKinematicBodies = true;
-	bDebugDrawHeightFields = true;
-	CustomBodyIDStart = 0;
-	StaticBodyIDStart = 21845,
-	DynamicBodyIDStart = 43690;
-	MaxPhysicsJobs = 2048;
-	MaxPhysicsBarriers = 8;
-	MaxThreads = 2;
-	TickRate = 60;
-	FixedDeltaTime = 1.0f / 60.0f; // 60Hz
-	InCollisionSteps = 1;
-	PreAllocatedMemory = 10;	   // 10MB
-	bEnableMultithreading = false; // 10MB
-
+	CategoryName = "Plugins";
+	SectionName = "Jolt";
+	
 	// Default layer setup: two broadphase layers, two object layers. Dynamic collides with
 	// everything; Static only collides with Dynamic.
 	if (BroadphaseLayers.Num() == 0)
@@ -41,29 +21,22 @@ UJoltSettings::UJoltSettings(const FObjectInitializer& obj)
 
 	if (ObjectLayers.Num() == 0)
 	{
-		FJoltObjectLayer staticLayer;
-		staticLayer.Name = StaticLayerName;
-		staticLayer.BroadphaseLayer = StaticLayerName;
-		staticLayer.CollidesWith.Add(DynamicLayerName);
-		ObjectLayers.Add(staticLayer);
+		FJoltObjectLayer StaticLayer;
+		StaticLayer.Name = StaticLayerName;
+		StaticLayer.BroadphaseLayer = StaticLayerName;
+		StaticLayer.CollidesWith.Add(DynamicLayerName);
+		ObjectLayers.Add(StaticLayer);
 
-		FJoltObjectLayer dynamicLayer;
-		dynamicLayer.Name = DynamicLayerName;
-		dynamicLayer.BroadphaseLayer = DynamicLayerName;
-		dynamicLayer.CollidesWith.Add(StaticLayerName);
-		dynamicLayer.CollidesWith.Add(DynamicLayerName);
-		ObjectLayers.Add(dynamicLayer);
+		FJoltObjectLayer DynamicLayer;
+		DynamicLayer.Name = DynamicLayerName;
+		DynamicLayer.BroadphaseLayer = DynamicLayerName;
+		DynamicLayer.CollidesWith.Add(StaticLayerName);
+		DynamicLayer.CollidesWith.Add(DynamicLayerName);
+		ObjectLayers.Add(DynamicLayer);
 	}
 
-	if (DefaultDynamicLayer.IsNone())
-	{
-		DefaultDynamicLayer = DynamicLayerName;
-	}
-
-	if (DefaultStaticLayer.IsNone())
-	{
-		DefaultStaticLayer = StaticLayerName;
-	}
+	if (DefaultDynamicLayer.IsNone()) DefaultDynamicLayer = DynamicLayerName;
+	if (DefaultStaticLayer.IsNone()) DefaultStaticLayer = StaticLayerName;
 }
 
 TArray<FString> UJoltSettings::GetBroadphaseLayerNames() const
@@ -110,20 +83,17 @@ void UJoltSettings::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 	// Layer validation / symmetry enforcement. Runs on any edit under BroadphaseLayers / ObjectLayers
 	// (including nested struct member edits and array add/remove/clear). Cheap enough to run on every
 	// layer edit since the arrays are tiny.
-	const FName		   changedPropName = PropertyChangedEvent.Property != nullptr ? PropertyChangedEvent.Property->GetFName() : NAME_None;
-	const FName		   memberPropName = PropertyChangedEvent.MemberProperty != nullptr ? PropertyChangedEvent.MemberProperty->GetFName() : NAME_None;
+	const FName ChangedPropName = PropertyChangedEvent.Property != nullptr ? PropertyChangedEvent.Property->GetFName() : NAME_None;
+	const FName MemberPropName = PropertyChangedEvent.MemberProperty != nullptr ? PropertyChangedEvent.MemberProperty->GetFName() : NAME_None;
 	static const FName BroadphaseLayersName = GET_MEMBER_NAME_CHECKED(UJoltSettings, BroadphaseLayers);
 	static const FName ObjectLayersName = GET_MEMBER_NAME_CHECKED(UJoltSettings, ObjectLayers);
 	static const FName DefaultDynamicLayerName = GET_MEMBER_NAME_CHECKED(UJoltSettings, DefaultDynamicLayer);
 	static const FName DefaultStaticLayerName = GET_MEMBER_NAME_CHECKED(UJoltSettings, DefaultStaticLayer);
 
-	const bool bLayersTouched = memberPropName == BroadphaseLayersName || memberPropName == ObjectLayersName || memberPropName == DefaultDynamicLayerName || memberPropName == DefaultStaticLayerName || changedPropName == BroadphaseLayersName || changedPropName == ObjectLayersName;
+	const bool bLayersTouched = MemberPropName == BroadphaseLayersName || MemberPropName == ObjectLayersName || MemberPropName == DefaultDynamicLayerName || MemberPropName == DefaultStaticLayerName || ChangedPropName == BroadphaseLayersName || ChangedPropName == ObjectLayersName;
 
-	if (!bLayersTouched)
-	{
-		return;
-	}
-
+	if (!bLayersTouched) return;
+	
 	if (BroadphaseLayers.Num() > MaxBroadphaseLayerCount)
 	{
 		BroadphaseLayers.SetNum(MaxBroadphaseLayerCount);
@@ -163,83 +133,83 @@ void UJoltSettings::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 	EnsureObjectLayer(DynamicLayerName);
 
 	// Build a set of valid object layer names so we can filter out stale references.
-	TSet<FName> validObjectLayerNames;
-	validObjectLayerNames.Reserve(ObjectLayers.Num());
+	TSet<FName> ValidObjectLayerNames;
+	ValidObjectLayerNames.Reserve(ObjectLayers.Num());
 	for (const FJoltObjectLayer& layer : ObjectLayers)
 	{
 		if (!layer.Name.IsNone())
 		{
-			validObjectLayerNames.Add(layer.Name);
+			ValidObjectLayerNames.Add(layer.Name);
 		}
 	}
 
-	TSet<FName> validBroadphaseNames;
-	validBroadphaseNames.Reserve(BroadphaseLayers.Num());
+	TSet<FName> ValidBroadphaseNames;
+	ValidBroadphaseNames.Reserve(BroadphaseLayers.Num());
 	for (const FJoltBroadphaseLayer& layer : BroadphaseLayers)
 	{
 		if (!layer.Name.IsNone())
 		{
-			validBroadphaseNames.Add(layer.Name);
+			ValidBroadphaseNames.Add(layer.Name);
 		}
 	}
 
 	// Drop any CollidesWith entries pointing at deleted/renamed layers, then mirror the edit so the
 	// collision relation stays symmetric (A collides with B ⇒ B collides with A).
-	for (FJoltObjectLayer& layer : ObjectLayers)
+	for (FJoltObjectLayer& Layer : ObjectLayers)
 	{
-		TSet<FName> cleaned;
-		for (const FName& otherName : layer.CollidesWith)
+		TSet<FName> Cleaned;
+		for (const FName& otherName : Layer.CollidesWith)
 		{
-			if (validObjectLayerNames.Contains(otherName))
+			if (ValidObjectLayerNames.Contains(otherName))
 			{
-				cleaned.Add(otherName);
+				Cleaned.Add(otherName);
 			}
 		}
-		layer.CollidesWith = MoveTemp(cleaned);
+		Layer.CollidesWith = MoveTemp(Cleaned);
 	}
 
-	TMap<FName, int32> nameToIndex;
+	TMap<FName, int32> NameToIndex;
 	for (int32 i = 0; i < ObjectLayers.Num(); ++i)
 	{
 		if (!ObjectLayers[i].Name.IsNone())
 		{
-			nameToIndex.Add(ObjectLayers[i].Name, i);
+			NameToIndex.Add(ObjectLayers[i].Name, i);
 		}
 	}
 
 	for (int32 i = 0; i < ObjectLayers.Num(); ++i)
 	{
-		FJoltObjectLayer& layer = ObjectLayers[i];
-		for (const FName& otherName : layer.CollidesWith)
+		FJoltObjectLayer& Layer = ObjectLayers[i];
+		for (const FName& OtherName : Layer.CollidesWith)
 		{
-			const int32* otherIdx = nameToIndex.Find(otherName);
-			if (otherIdx != nullptr && ObjectLayers.IsValidIndex(*otherIdx))
+			const int32* OtherIdx = NameToIndex.Find(OtherName);
+			if (OtherIdx != nullptr && ObjectLayers.IsValidIndex(*OtherIdx))
 			{
-				ObjectLayers[*otherIdx].CollidesWith.Add(layer.Name);
+				ObjectLayers[*OtherIdx].CollidesWith.Add(Layer.Name);
 			}
 		}
 	}
 
 	// If a layer's broadphase reference is missing, fall back to the first broadphase layer so the
 	// filter table still builds cleanly. User will see the reverted value in the details panel.
-	const FName fallbackBroadphase = BroadphaseLayers.Num() > 0 ? BroadphaseLayers[0].Name : NAME_None;
-	for (FJoltObjectLayer& layer : ObjectLayers)
+	const FName FallbackBroadphase = BroadphaseLayers.Num() > 0 ? BroadphaseLayers[0].Name : NAME_None;
+	for (FJoltObjectLayer& Layer : ObjectLayers)
 	{
-		if (!validBroadphaseNames.Contains(layer.BroadphaseLayer))
+		if (!ValidBroadphaseNames.Contains(Layer.BroadphaseLayer))
 		{
-			layer.BroadphaseLayer = fallbackBroadphase;
+			Layer.BroadphaseLayer = FallbackBroadphase;
 		}
 	}
 
 	// Default layer names must also point at valid object layers.
-	if (!validObjectLayerNames.Contains(DefaultDynamicLayer))
+	if (!ValidObjectLayerNames.Contains(DefaultDynamicLayer))
 	{
-		DefaultDynamicLayer = validObjectLayerNames.Contains(DynamicLayerName) ? DynamicLayerName : (ObjectLayers.Num() > 0 ? ObjectLayers[0].Name : NAME_None);
+		DefaultDynamicLayer = ValidObjectLayerNames.Contains(DynamicLayerName) ? DynamicLayerName : (ObjectLayers.Num() > 0 ? ObjectLayers[0].Name : NAME_None);
 	}
 
-	if (!validObjectLayerNames.Contains(DefaultStaticLayer))
+	if (!ValidObjectLayerNames.Contains(DefaultStaticLayer))
 	{
-		DefaultStaticLayer = validObjectLayerNames.Contains(StaticLayerName) ? StaticLayerName : (ObjectLayers.Num() > 0 ? ObjectLayers[0].Name : NAME_None);
+		DefaultStaticLayer = ValidObjectLayerNames.Contains(StaticLayerName) ? StaticLayerName : (ObjectLayers.Num() > 0 ? ObjectLayers[0].Name : NAME_None);
 	}
 }
 #endif
