@@ -2,7 +2,12 @@
 
 ![Physics](Resources/Screenshots/play.gif)
 
-Plugin that brings [Jolt Physics](https://github.com/jrouwe/JoltPhysics) into unreal engine 5
+## Overview
+A fork of [UnrealJolt](https://github.com/Yadhu-S/UnrealJolt) by [Yadhu-S](https://github.com/Yadhu-S) bringing [Jolt Physics](https://github.com/jrouwe/JoltPhysics) into Unreal Engine 5.
+
+This fork is focused on refactoring large parts of UnrealJolt to fit it for general-purpose use. Expect this fork to be more experimental, and less stable than the upstream UnrealJolt. 
+
+If stability is a priority, use the original. Fixes and improvements are upstreamed back to UnrealJolt via PRs where possible.
 
 ---
 
@@ -86,4 +91,5 @@ To ensure deterministic simulation with Jolt Physics across platforms, follow th
 ---
 ## Credits
 - [Jorrit Rouwe](https://github.com/jrouwe) for making jolt
+- [
 - Andrea Catania for the video series on YouTube
